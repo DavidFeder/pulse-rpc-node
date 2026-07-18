@@ -253,7 +253,14 @@ if command -v ufw >/dev/null 2>&1; then
   done
 
   ok "UFW rules added (P2P open, RPC limited to private networks)."
-  warn "If your LAN uses a different subnet, adjust the rules with: sudo ufw status numbered"
+  echo ""
+  warn "IMPORTANT about UFW:"
+  warn "  The rules have been added, but UFW may still be inactive."
+  warn "  To enable the firewall safely (after confirming SSH still works):"
+  warn "    sudo ufw allow OpenSSH"
+  warn "    sudo ufw enable"
+  warn "  Then check: sudo ufw status numbered"
+  warn "  If your home network uses a different subnet, edit the rules accordingly."
 else
   info "UFW not found — assuming no software firewall (or it is managed elsewhere). Skipping firewall rules."
 fi
