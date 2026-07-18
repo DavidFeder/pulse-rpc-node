@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # install.sh — one-command setup for pulse-rpc-node
 # Installs Docker (if needed), prepares /blockchain, generates JWT, starts the node.
+# Also adds safe UFW rules if UFW is already present.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -233,7 +234,32 @@ if [[ "${#PORT_CONFLICTS[@]}" -gt 0 ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 8. Pull images + start stack
+# 8. UFW rules (only if UFW is already installed)
+# ---------------------------------------------------------------------------
+if command -v ufw >/dev/null 2>&1; then
+  info "UFW is installed — adding recommended rules (RPC restricted to common private ranges)..."
+
+  # Allow P2P for better connectivity
+  $SUDO ufw allow 30303/tcp comment 'PulseChain Geth P2P' >/dev/null 2>&1 || true
+  $SUDO ufw allow 30303/udp comment 'PulseChain Geth P2P' >/dev/null 2>&1 || true
+  $SUDO ufw allow 13000/tcp comment 'PulseChain Beacon P2P TCP' >/dev/null 2>&1 || true
+  $SUDO ufw allow 12000/udp comment 'PulseChain Beacon P2P UDP' >/dev/null 2>&1 || true
+
+  # Restrict RPC to common private LAN ranges (safe default)
+  for range in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16; do
+    $SUDO ufw allow from "${range}" to any port 8545 proto tcp comment 'Pulse RPC HTTP - LAN' >/dev/null 2>&1 || true
+    $SUDO ufw allow from "${range}" to any port 8546 proto tcp comment 'Pulse RPC WS - LAN' >/dev/null 2>&1 || true
+    $SUDO ufw allow from "${range}" to any port 3500 proto tcp comment 'Pulse Beacon API - LAN' >/dev/null 2>&1 || true
+  done
+
+  ok "UFW rules added (P2P open, RPC limited to private networks)."
+  warn "If your LAN uses a different subnet, adjust the rules with: sudo ufw status numbered"
+else
+  info "UFW not found — assuming no software firewall (or it is managed elsewhere). Skipping firewall rules."
+fi
+
+# ---------------------------------------------------------------------------
+# 9. Pull images + start stack
 # ---------------------------------------------------------------------------
 if [[ ! -f docker-compose.yml ]]; then
   die "docker-compose.yml not found in ${SCRIPT_DIR}"
@@ -246,7 +272,7 @@ info "Starting node containers..."
 run_compose up -d || die "Failed to start containers. Run: ./logs.sh"
 
 # ---------------------------------------------------------------------------
-# 9. Success message
+# 10. Success message
 # ---------------------------------------------------------------------------
 LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 if [[ -z "${LAN_IP}" ]]; then
