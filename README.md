@@ -181,8 +181,8 @@ By default, RPC binds to `0.0.0.0` (all interfaces). To accept connections **onl
 2. Under the **geth** service, change:
    - `--http.addr=0.0.0.0` → `--http.addr=127.0.0.1`
    - `--ws.addr=0.0.0.0` → `--ws.addr=127.0.0.1`
-3. Optionally under **beacon**:
-   - `--grpc-gateway-host=0.0.0.0` → `--grpc-gateway-host=127.0.0.1`
+3. Under **beacon**, change:
+   - `--http-host=0.0.0.0` → `--http-host=127.0.0.1`
    - `--rpc-host=0.0.0.0` → `--rpc-host=127.0.0.1`
 4. Apply the change:
 
@@ -200,7 +200,7 @@ Use `http://127.0.0.1:8545` in wallets on **that machine only**.
 |------|----------|---------|--------------|
 | 8545 | TCP | HTTP JSON-RPC (wallets) | `0.0.0.0` (LAN) |
 | 8546 | TCP | WebSocket RPC | `0.0.0.0` (LAN) |
-| 3500 | TCP | Beacon REST API (gRPC-gateway) | `0.0.0.0` (LAN) |
+| 3500 | TCP | Beacon REST API | `0.0.0.0` (LAN) |
 | 4000 | TCP | Beacon gRPC | `0.0.0.0` (LAN) |
 | 8551 | TCP | Engine API (JWT; geth ↔ beacon) | Host-local (via `network_mode: host`) |
 | 30303 | TCP/UDP | Execution P2P | Host |
@@ -208,6 +208,34 @@ Use `http://127.0.0.1:8545` in wallets on **that machine only**.
 | 12000 | UDP | Beacon P2P | Host |
 
 For improved peer connectivity, you may allow **inbound** traffic on the P2P ports (30303, 13000, 12000). **Do not** forward RPC ports 8545, 8546, or 3500 to the public internet.
+
+---
+
+## Recommended firewall (UFW)
+
+If you use UFW, here are sensible rules for a home node:
+
+```bash
+# Allow SSH (adjust if you use a different port)
+sudo ufw allow OpenSSH
+
+# Allow P2P (helps with peer count)
+sudo ufw allow 30303/tcp
+sudo ufw allow 30303/udp
+sudo ufw allow 13000/tcp
+sudo ufw allow 12000/udp
+
+# Allow RPC only from your local network (edit the subnet!)
+# Common home subnets: 192.168.0.0/16 or 192.168.1.0/24
+sudo ufw allow from 192.168.0.0/16 to any port 8545 proto tcp comment 'Geth HTTP RPC - LAN only'
+sudo ufw allow from 192.168.0.0/16 to any port 8546 proto tcp comment 'Geth WS RPC - LAN only'
+sudo ufw allow from 192.168.0.0/16 to any port 3500 proto tcp comment 'Beacon HTTP API - LAN only'
+
+sudo ufw enable
+sudo ufw status numbered
+```
+
+Replace `192.168.0.0/16` with your actual LAN range. Never open the RPC ports to `0.0.0.0/0` or the public internet.
 
 ---
 
