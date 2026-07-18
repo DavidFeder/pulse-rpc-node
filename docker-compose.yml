@@ -25,6 +25,8 @@ services:
       - --pulsechain
       - --datadir=/blockchain/execution
       - --authrpc.jwtsecret=/blockchain/jwt.hex
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.vhosts=*
       - --http
       - --http.addr=0.0.0.0
       - --http.port=8545
@@ -60,7 +62,10 @@ services:
       - --execution-endpoint=http://localhost:8551
       - --checkpoint-sync-url=https://checkpoint.pulsechain.com
       - --genesis-beacon-api-url=https://checkpoint.pulsechain.com
-      # REST/JSON HTTP API (Prysm gRPC-gateway; defaults to 127.0.0.1:3500)
+      # Modern HTTP API flags (preferred)
+      - --http-host=0.0.0.0
+      - --http-port=3500
+      # Keep legacy aliases for compatibility with older images
       - --grpc-gateway-host=0.0.0.0
       - --grpc-gateway-port=3500
       # gRPC API
