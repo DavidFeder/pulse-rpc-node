@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
 # restart.sh — restart the PulseChain node stack
 set -euo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+# shellcheck source=common.sh
+source "${SCRIPT_DIR}/common.sh"
 
 echo "Restarting node..."
-if docker compose restart 2>/dev/null; then
-  :
-else
-  sudo docker compose restart
-fi
-
+run_compose restart
 echo "Node restarted."
 echo "Follow logs with: ./logs.sh"

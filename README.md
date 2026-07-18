@@ -9,7 +9,7 @@ This project packages the official PulseChain clients in Docker Compose with a s
 | [Go-Pulse](https://gitlab.com/pulsechaincom/go-pulse) | Execution layer (JSON-RPC / WebSocket) | `registry.gitlab.com/pulsechaincom/go-pulse:latest` |
 | [Prysm-Pulse](https://gitlab.com/pulsechaincom/prysm-pulse) | Consensus layer (beacon chain) | `registry.gitlab.com/pulsechaincom/prysm-pulse/beacon-chain:latest` |
 
-**Defaults:** mainnet · checkpoint sync · data in `/blockchain` · RPC available on the LAN (`0.0.0.0`)
+**Defaults:** mainnet · checkpoint sync · data under `/blockchain` · RPC available on the LAN (`0.0.0.0`)
 
 ---
 
@@ -27,7 +27,7 @@ chmod +x install.sh
 The installer will:
 
 1. Install Docker Engine and the Compose plugin if they are missing (Ubuntu/Debian)
-2. Create `/blockchain` and generate a JWT secret if needed
+2. Create `/blockchain` (with `execution` / `consensus` subdirs) and generate a JWT secret if needed
 3. Pull the official images and start both containers
 4. Print your LAN IP and wallet connection settings
 
@@ -182,7 +182,7 @@ By default, RPC binds to `0.0.0.0` (all interfaces). To accept connections **onl
    - `--http.addr=0.0.0.0` → `--http.addr=127.0.0.1`
    - `--ws.addr=0.0.0.0` → `--ws.addr=127.0.0.1`
 3. Optionally under **beacon**:
-   - `--http-host=0.0.0.0` → `--http-host=127.0.0.1`
+   - `--grpc-gateway-host=0.0.0.0` → `--grpc-gateway-host=127.0.0.1`
    - `--rpc-host=0.0.0.0` → `--rpc-host=127.0.0.1`
 4. Apply the change:
 
@@ -198,9 +198,10 @@ Use `http://127.0.0.1:8545` in wallets on **that machine only**.
 
 | Port | Protocol | Purpose | Default bind |
 |------|----------|---------|--------------|
-| 8545 | TCP | HTTP JSON-RPC | `0.0.0.0` (LAN) |
+| 8545 | TCP | HTTP JSON-RPC (wallets) | `0.0.0.0` (LAN) |
 | 8546 | TCP | WebSocket RPC | `0.0.0.0` (LAN) |
-| 3500 | TCP | Beacon HTTP API | `0.0.0.0` (LAN) |
+| 3500 | TCP | Beacon REST API (gRPC-gateway) | `0.0.0.0` (LAN) |
+| 4000 | TCP | Beacon gRPC | `0.0.0.0` (LAN) |
 | 8551 | TCP | Engine API (JWT; geth ↔ beacon) | Host-local (via `network_mode: host`) |
 | 30303 | TCP/UDP | Execution P2P | Host |
 | 13000 | TCP | Beacon P2P | Host |
@@ -215,7 +216,9 @@ For improved peer connectivity, you may allow **inbound** traffic on the P2P por
 | Setting | Value |
 |---------|--------|
 | Network | PulseChain mainnet (`--pulsechain`), chain ID `369` |
-| Data directory | `/blockchain` |
+| Host data root | `/blockchain` |
+| Execution datadir | `/blockchain/execution` |
+| Consensus datadir | `/blockchain/consensus` |
 | JWT secret | `/blockchain/jwt.hex` |
 | Checkpoint sync | `https://checkpoint.pulsechain.com` |
 | Restart policy | `unless-stopped` |
@@ -231,7 +234,9 @@ Optional variables are documented in `.env.example`. Version 1 keeps runtime fla
 | Issue | Suggested action |
 |-------|------------------|
 | Docker permission denied | Log out and back in after install (docker group membership), or prefix commands with `sudo` |
-| Beacon cannot find execution client | Confirm both containers are running and that `/blockchain/jwt.hex` exists and is shared |
+| `address already in use` / crash loop | Another node is using ports 8545, 8546, 3500, 4000, or 8551. Stop the other process or change ports in `docker-compose.yml` |
+| Beacon cannot find execution client | Confirm both containers are running and that `/blockchain/jwt.hex` exists and is shared by both |
+| JWT / `401 Unauthorized` to execution | Ensure only one execution client is on port 8551 and both services use the same `/blockchain/jwt.hex` |
 | Wallet cannot connect | Verify LAN IP, same network, host firewall rules; test `curl` against `127.0.0.1:8545` on the node |
 | Disk space pressure | Full nodes grow over time — monitor free space and use a large SSD |
 | Slow sync | Prefer NVMe storage, adequate RAM, and open P2P ports where practical |
@@ -258,6 +263,7 @@ pulse-rpc-node/
 ├── LICENSE
 ├── docker-compose.yml    # Go-Pulse + Prysm-Pulse
 ├── .env.example          # Optional future settings
+├── common.sh             # Shared docker compose helper
 ├── install.sh            # One-command setup
 ├── start.sh
 ├── stop.sh

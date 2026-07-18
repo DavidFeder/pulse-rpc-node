@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 # start.sh — start the PulseChain node stack
 set -euo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+# shellcheck source=common.sh
+source "${SCRIPT_DIR}/common.sh"
 
-if docker compose up -d 2>/dev/null; then
-  :
-else
-  sudo docker compose up -d
-fi
-
+run_compose up -d
 echo "Node started (pulse-geth + pulse-beacon)."
 echo "Follow logs with: ./logs.sh"

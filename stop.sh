@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 # stop.sh — gracefully stop the PulseChain node stack
 set -euo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+# shellcheck source=common.sh
+source "${SCRIPT_DIR}/common.sh"
 
 echo "Stopping node (grace period up to ~5 minutes for clean shutdown)..."
-if docker compose down 2>/dev/null; then
-  :
-else
-  sudo docker compose down
-fi
-
+run_compose down
 echo "Node stopped. Chain data is preserved in /blockchain"

@@ -5,6 +5,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+# shellcheck source=common.sh
+source "${SCRIPT_DIR}/common.sh"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -38,7 +40,6 @@ else
   if ! command -v sudo >/dev/null 2>&1; then
     die "sudo is required when not running as root. Install sudo or re-run as root."
   fi
-  # Ensure we can use sudo without a surprise mid-script
   if ! sudo -n true 2>/dev/null; then
     info "This script needs sudo for Docker install and /blockchain setup."
     sudo -v || die "Could not obtain sudo privileges."
@@ -78,7 +79,10 @@ need_docker_install=false
 if ! command -v docker >/dev/null 2>&1; then
   need_docker_install=true
 elif ! docker compose version >/dev/null 2>&1; then
-  need_docker_install=true
+  # Compose plugin may only be visible via sudo if group membership is pending
+  if ! $SUDO docker compose version >/dev/null 2>&1; then
+    need_docker_install=true
+  fi
 fi
 
 if [[ "${need_docker_install}" == true ]]; then
@@ -89,11 +93,14 @@ if [[ "${need_docker_install}" == true ]]; then
       $SUDO apt-get install -y ca-certificates curl gnupg openssl
       $SUDO install -m 0755 -d /etc/apt/keyrings
       if [[ ! -f /etc/apt/keyrings/docker.asc ]]; then
-        $SUDO curl -fsSL "https://download.docker.com/linux/${OS_ID}/gpg" -o /etc/apt/keyrings/docker.asc \
-          || $SUDO curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+        # Mint/Pop use Ubuntu packages; their own Docker GPG URL may not exist
+        if [[ "${OS_ID}" == "ubuntu" || "${OS_ID}" == "debian" ]]; then
+          $SUDO curl -fsSL "https://download.docker.com/linux/${OS_ID}/gpg" -o /etc/apt/keyrings/docker.asc
+        else
+          $SUDO curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+        fi
         $SUDO chmod a+r /etc/apt/keyrings/docker.asc
       fi
-      # Prefer matching distro; fall back to ubuntu codename mapping
       DOCKER_DISTRO="${OS_ID}"
       DOCKER_CODENAME="${VERSION_CODENAME:-stable}"
       if [[ "${OS_ID}" != "ubuntu" && "${OS_ID}" != "debian" ]]; then
@@ -119,53 +126,42 @@ fi
 # Ensure openssl for JWT generation
 if ! command -v openssl >/dev/null 2>&1; then
   info "Installing openssl..."
-  $SUDO apt-get update -y && $SUDO apt-get install -y openssl || die "Please install openssl and re-run."
+  case "${OS_ID}" in
+    ubuntu|debian|linuxmint|pop)
+      $SUDO apt-get update -y && $SUDO apt-get install -y openssl || die "Please install openssl and re-run."
+      ;;
+    *)
+      die "openssl is required. Please install it and re-run."
+      ;;
+  esac
 fi
 
-# Allow current user to run docker without sudo (best-effort)
+# Allow current user to run docker without sudo (best-effort; needs re-login)
 if [[ "${EUID}" -ne 0 ]]; then
-  if ! groups | grep -qw docker; then
+  if ! id -nG "${USER}" | tr ' ' '\n' | grep -qx docker; then
     info "Adding ${USER} to the docker group (log out/in may be required)..."
     $SUDO usermod -aG docker "${USER}" || warn "Could not add user to docker group."
-    # Try to use newgrp-style access for this session via sg if needed later
   fi
 fi
 
-# Helper: run docker, with sudo fallback if permission denied
-docker_cmd() {
-  if docker "$@" 2>/dev/null; then
-    return 0
-  fi
-  if [[ "${EUID}" -ne 0 ]]; then
-    $SUDO docker "$@"
-  else
-    docker "$@"
-  fi
-}
-
-compose_cmd() {
-  if docker compose "$@" 2>/dev/null; then
-    return 0
-  fi
-  if [[ "${EUID}" -ne 0 ]]; then
-    $SUDO docker compose "$@"
-  else
-    docker compose "$@"
-  fi
-}
-
 # ---------------------------------------------------------------------------
-# 4. Prepare /blockchain
+# 4. Prepare /blockchain (official layout: execution + consensus + jwt)
 # ---------------------------------------------------------------------------
 info "Preparing data directory /blockchain ..."
-$SUDO mkdir -p /blockchain
-$SUDO chmod 755 /blockchain
+$SUDO mkdir -p /blockchain/execution /blockchain/consensus
+$SUDO chmod 755 /blockchain /blockchain/execution /blockchain/consensus
 
-# Prefer ownership by current user so docker (host network) and scripts can write
+# Only chown when safe: empty tree or already owned by this user.
+# Avoid recursive chown of multi-TB chain data on every re-run.
 if [[ "${EUID}" -ne 0 ]]; then
-  $SUDO chown -R "${USER}:${USER}" /blockchain 2>/dev/null || true
+  if [[ -z "$(ls -A /blockchain/execution 2>/dev/null || true)" ]] \
+     && [[ -z "$(ls -A /blockchain/consensus 2>/dev/null || true)" ]]; then
+    $SUDO chown -R "${USER}:${USER}" /blockchain 2>/dev/null || true
+  else
+    $SUDO chown "${USER}:${USER}" /blockchain 2>/dev/null || true
+  fi
 fi
-ok "/blockchain is ready."
+ok "/blockchain is ready (execution + consensus subdirs)."
 
 # ---------------------------------------------------------------------------
 # 5. JWT secret (required for Engine API between geth and beacon)
@@ -175,11 +171,15 @@ if [[ -f "${JWT_PATH}" ]]; then
   ok "JWT secret already exists at ${JWT_PATH}"
 else
   info "Generating JWT secret at ${JWT_PATH} ..."
-  # No trailing newline (required by clients)
+  # No trailing newline (required by clients / official docs)
   openssl rand -hex 32 | tr -d '\n' | $SUDO tee "${JWT_PATH}" >/dev/null
   $SUDO chmod 644 "${JWT_PATH}"
   if [[ "${EUID}" -ne 0 ]]; then
     $SUDO chown "${USER}:${USER}" "${JWT_PATH}" 2>/dev/null || true
+  fi
+  # Sanity: 64 hex chars, no newline
+  if [[ ! -s "${JWT_PATH}" ]] || [[ "$(wc -c < "${JWT_PATH}" | tr -d ' ')" -ne 64 ]]; then
+    die "JWT secret at ${JWT_PATH} looks invalid (expected 64 hex characters)."
   fi
   ok "JWT secret created."
 fi
@@ -199,18 +199,55 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 7. Pull images + start stack
+# 7. Port conflict pre-check (host networking shares the host's ports)
 # ---------------------------------------------------------------------------
+check_port_in_use() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -lntu 2>/dev/null | awk '{print $5}' | grep -Eq "[:.]${port}$"
+  elif command -v lsof >/dev/null 2>&1; then
+    lsof -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1 \
+      || lsof -iUDP:"${port}" >/dev/null 2>&1
+  else
+    return 1
+  fi
+}
+
+PORTS_TO_CHECK=(8545 8546 3500 4000 8551 30303 13000 12000)
+PORT_CONFLICTS=()
+for port in "${PORTS_TO_CHECK[@]}"; do
+  if check_port_in_use "${port}"; then
+    PORT_CONFLICTS+=("${port}")
+  fi
+done
+if [[ "${#PORT_CONFLICTS[@]}" -gt 0 ]]; then
+  warn "These ports are already in use on this machine: ${PORT_CONFLICTS[*]}"
+  warn "A full node needs them free (or you must change ports in docker-compose.yml)."
+  warn "Common cause: another Geth/Prysm/PulseChain node already running."
+  echo ""
+  read -r -p "Continue anyway? [y/N] " reply || reply="n"
+  case "${reply}" in
+    y|Y|yes|YES) warn "Continuing despite port conflicts..." ;;
+    *) die "Aborted due to port conflicts. Free the ports and re-run ./install.sh" ;;
+  esac
+fi
+
+# ---------------------------------------------------------------------------
+# 8. Pull images + start stack
+# ---------------------------------------------------------------------------
+if [[ ! -f docker-compose.yml ]]; then
+  die "docker-compose.yml not found in ${SCRIPT_DIR}"
+fi
+
 info "Pulling official PulseChain Docker images (this may take a few minutes)..."
-compose_cmd pull || die "Failed to pull images. Check your internet connection and try again."
+run_compose pull || die "Failed to pull images. Check your internet connection and try again."
 
 info "Starting node containers..."
-compose_cmd up -d || die "Failed to start containers. Run: docker compose logs"
+run_compose up -d || die "Failed to start containers. Run: ./logs.sh"
 
 # ---------------------------------------------------------------------------
-# 8. Success message
+# 9. Success message
 # ---------------------------------------------------------------------------
-# Best-effort LAN IP detection
 LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 if [[ -z "${LAN_IP}" ]]; then
   LAN_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')"
@@ -225,7 +262,7 @@ echo -e "${GREEN}${BOLD}  Node is starting!${NC}"
 echo -e "${GREEN}${BOLD}========================================${NC}"
 echo ""
 echo -e "  Containers: ${BOLD}pulse-geth${NC} + ${BOLD}pulse-beacon${NC}"
-echo -e "  Data dir:   ${BOLD}/blockchain${NC}"
+echo -e "  Data dir:   ${BOLD}/blockchain${NC}  (execution + consensus)"
 echo -e "  Network:    ${BOLD}PulseChain Mainnet${NC} (chain id 369)"
 echo ""
 echo -e "${YELLOW}${BOLD}SECURITY REMINDER${NC}"
