@@ -1,21 +1,21 @@
 # pulse-rpc-node
 
-**Run your own PulseChain full node as a private RPC** — simple enough for beginners, solid enough for daily wallet use.
+Run a **PulseChain mainnet full node** and use it as a **private JSON-RPC endpoint** for MetaMask, Internet Money, and other wallets.
 
-This project starts:
+This project packages the official PulseChain clients in Docker Compose with a single install script. No manual client builds, no complex config for the common case.
 
-| Client | Role | Official image |
-|--------|------|----------------|
-| **Go-Pulse** (geth) | Execution layer + JSON-RPC | `registry.gitlab.com/pulsechaincom/go-pulse:latest` |
-| **Prysm-Pulse** Beacon | Consensus layer | `registry.gitlab.com/pulsechaincom/prysm-pulse/beacon-chain:latest` |
+| Component | Role | Image |
+|-----------|------|-------|
+| [Go-Pulse](https://gitlab.com/pulsechaincom/go-pulse) | Execution layer (JSON-RPC / WebSocket) | `registry.gitlab.com/pulsechaincom/go-pulse:latest` |
+| [Prysm-Pulse](https://gitlab.com/pulsechaincom/prysm-pulse) | Consensus layer (beacon chain) | `registry.gitlab.com/pulsechaincom/prysm-pulse/beacon-chain:latest` |
 
-Use it with **MetaMask**, **Internet Money**, and other wallets instead of a public RPC.
+**Defaults:** mainnet · checkpoint sync · data in `/blockchain` · RPC available on the LAN (`0.0.0.0`)
 
 ---
 
 ## Quick start
 
-On a Linux machine (Ubuntu/Debian recommended) with at least one free disk for chain data:
+**Requirements:** Linux (Ubuntu 22.04 / 24.04 or Debian recommended), `sudo`, outbound internet, and a large SSD mounted where `/blockchain` will live.
 
 ```bash
 git clone https://github.com/DavidFeder/pulse-rpc-node.git
@@ -24,62 +24,68 @@ chmod +x install.sh
 ./install.sh
 ```
 
-That’s it. The installer installs Docker if needed, prepares `/blockchain`, creates a JWT secret, pulls the official images, and starts the node.
+The installer will:
+
+1. Install Docker Engine and the Compose plugin if they are missing (Ubuntu/Debian)
+2. Create `/blockchain` and generate a JWT secret if needed
+3. Pull the official images and start both containers
+4. Print your LAN IP and wallet connection settings
 
 ---
 
 ## Hardware recommendations
 
-Be honest with your hardware — PulseChain includes full Ethereum history up to the fork, so requirements are real:
+PulseChain includes Ethereum mainnet state through the fork block, so storage and memory needs are substantial.
 
-| Resource | Comfortable | Minimum that can work |
-|----------|-------------|------------------------|
-| **RAM** | **32 GB+** | 16 GB (expect pressure / swapping) |
-| **Storage** | **2 TB+ NVMe SSD** | 1 TB+ fast SSD (full node; plan headroom for growth) |
+| Resource | Recommended | Minimum |
+|----------|-------------|---------|
+| **RAM** | 32 GB or more | 16 GB (may swap under load) |
+| **Storage** | 2 TB+ NVMe SSD | 1 TB+ fast SSD (full node; leave growth headroom) |
 | **CPU** | 4+ modern cores | 4 cores |
-| **Network** | Stable broadband, preferably unmetered | Required for initial sync & peers |
+| **Network** | Stable broadband, preferably unmetered | Required for sync and peers |
 
-- **SSD is effectively required.** HDDs are too slow for a reliable modern full node.
-- Initial sync can take **hours to days**. Checkpoint sync speeds up the beacon client a lot.
-- Archive nodes need far more disk (many TB) — this stack is aimed at a normal full node + private RPC.
+- Use an **SSD**. Mechanical drives are generally unsuitable for a reliable full node.
+- Initial sync can take **hours to days**, depending on hardware and bandwidth. Checkpoint sync accelerates the beacon client significantly.
+- This stack targets a **full node + private RPC**, not an archive node (archive deployments need many terabytes of disk).
 
 ---
 
-## ⚠ Security warnings (please read)
+## Security notice
 
-By default this stack **exposes RPC to your entire local network**:
+> **By default, RPC ports are bound to all interfaces (`0.0.0.0`) and are reachable on your local network.**
 
 | Port | Service |
 |------|---------|
-| **8545** | HTTP JSON-RPC (wallets use this) |
+| **8545** | HTTP JSON-RPC (primary wallet endpoint) |
 | **8546** | WebSocket RPC |
 | **3500** | Beacon HTTP API |
 
-**Do:**
+**Intended use**
 
-- Run this on a **trusted home / lab network** behind your router’s firewall.
-- Keep the machine updated and only allow people you trust on that LAN.
+- Trusted home or lab network, behind a normal router firewall
+- Private RPC for devices you control on that LAN
 
-**Don’t:**
+**Not intended for**
 
-- **Never port-forward** 8545, 8546, or 3500 to the public internet.
-- Don’t treat this as a public RPC endpoint for the world.
-- Don’t expose Engine API / admin surfaces carelessly (this compose is for private wallet RPC use).
+- Public internet exposure
+- Untrusted or shared networks without additional controls
 
-LAN exposure is intentional so phones and other PCs on your Wi‑Fi can use `http://YOUR_LAN_IP:8545`. If you only need the node on the same machine, see [Localhost-only mode](#localhost-only-mode) below.
+**Do not** port-forward **8545**, **8546**, or **3500** to the public internet. This project is a **private RPC**, not a public endpoint.
+
+LAN binding is intentional so phones and other machines on the same network can use `http://YOUR_LAN_IP:8545`. To restrict access to the host only, see [Localhost-only mode](#localhost-only-mode).
 
 ---
 
-## Step-by-step install
+## Installation
 
-### 1. Requirements
+### Prerequisites
 
-- Linux (Ubuntu 22.04 / 24.04 or Debian recommended)
-- `sudo` access
-- Enough free space on the disk that will hold `/blockchain`
-- Outbound internet (to pull images and sync)
+- Linux host (Ubuntu 22.04 / 24.04 or Debian recommended)
+- `sudo` privileges
+- Sufficient free space for `/blockchain`
+- Outbound connectivity to pull images and sync with the network
 
-### 2. Clone and install
+### Install
 
 ```bash
 git clone https://github.com/DavidFeder/pulse-rpc-node.git
@@ -88,29 +94,19 @@ chmod +x install.sh start.sh stop.sh restart.sh logs.sh update.sh
 ./install.sh
 ```
 
-What `install.sh` does:
-
-1. Checks privileges (prefers normal user + sudo)
-2. Installs **Docker Engine + Compose plugin** if missing (Ubuntu/Debian)
-3. Creates **`/blockchain`** and sets permissions
-4. Generates **`/blockchain/jwt.hex`** if missing (`openssl rand -hex 32`)
-5. Copies `.env.example` → `.env` if needed
-6. Runs `docker compose pull` and `docker compose up -d`
-7. Prints your LAN IP and MetaMask settings
-
-### 3. Wait for sync
+### Sync status
 
 ```bash
 ./logs.sh
 ```
 
-- **Beacon** usually catches up faster thanks to **checkpoint sync** (`https://checkpoint.pulsechain.com`).
-- **Execution (geth)** needs peers and will take longer to fully sync.
-- Your RPC may answer before the node is fully synced — for safety, wait until both clients look healthy before sending important transactions.
+- The **beacon** client typically advances quickly via [checkpoint sync](https://checkpoint.pulsechain.com).
+- The **execution** client (Go-Pulse) generally takes longer to fully sync.
+- The RPC may respond before the node is fully synced. Wait until both clients are healthy before relying on the endpoint for important transactions.
 
-### 4. Find your LAN IP
+### Discover your LAN IP
 
-The installer prints it. You can also run:
+Printed by the installer. You can also run:
 
 ```bash
 hostname -I | awk '{print $1}'
@@ -118,51 +114,53 @@ hostname -I | awk '{print $1}'
 
 ---
 
-## Connect a wallet
+## Wallet configuration
 
 ### MetaMask
 
-1. MetaMask → **Networks** → **Add network** → **Add a network manually**
-2. Enter:
+1. Open MetaMask → **Networks** → **Add network** → **Add a network manually**
+2. Use the following parameters:
 
 | Field | Value |
 |-------|--------|
-| **Network Name** | PulseChain |
-| **New RPC URL** | `http://YOUR_LAN_IP:8545` |
-| **Chain ID** | `369` |
-| **Currency Symbol** | `PLS` |
-| **Block explorer URL** | `https://scan.pulsechain.com` |
+| Network Name | PulseChain |
+| New RPC URL | `http://YOUR_LAN_IP:8545` |
+| Chain ID | `369` |
+| Currency Symbol | `PLS` |
+| Block explorer URL | `https://scan.pulsechain.com` |
 
-Example: if your node PC is `192.168.1.50`, use `http://192.168.1.50:8545`.
+**Example:** if the node host is `192.168.1.50`, set the RPC URL to `http://192.168.1.50:8545`.
 
-### Internet Money / other wallets
+### Internet Money and other wallets
 
 Use the same network parameters:
 
-- **RPC:** `http://YOUR_LAN_IP:8545`
-- **Chain ID:** `369`
-- **Symbol:** `PLS`
-- **Explorer:** `https://scan.pulsechain.com`
+| Setting | Value |
+|---------|--------|
+| RPC URL | `http://YOUR_LAN_IP:8545` |
+| Chain ID | `369` |
+| Symbol | `PLS` |
+| Explorer | `https://scan.pulsechain.com` |
 
-Phone wallets must be on the **same Wi‑Fi / LAN** as the node (unless you set up a VPN — advanced, not covered here).
+Mobile wallets must reach the node over the **same LAN** (or a VPN you configure yourself; VPN setup is out of scope for this guide).
 
 ---
 
-## Everyday commands
+## Operations
 
-Run these from the project directory (`pulse-rpc-node/`):
+Run the following from the project directory:
 
 | Action | Command |
 |--------|---------|
-| Follow logs | `./logs.sh` |
-| Logs for geth only | `./logs.sh geth` |
-| Logs for beacon only | `./logs.sh beacon` |
+| Follow logs (both services) | `./logs.sh` |
+| Follow Go-Pulse logs | `./logs.sh geth` |
+| Follow beacon logs | `./logs.sh beacon` |
 | Stop | `./stop.sh` |
 | Start | `./start.sh` |
 | Restart | `./restart.sh` |
-| Update images & restart | `./update.sh` |
+| Update images and recreate | `./update.sh` |
 
-Equivalent Compose commands:
+Equivalent Docker Compose commands:
 
 ```bash
 docker compose logs -f
@@ -171,93 +169,96 @@ docker compose up -d
 docker compose pull && docker compose up -d
 ```
 
-Chain data lives in **`/blockchain`** and is kept when you stop containers.
+Chain data is stored under **`/blockchain`** and is retained when containers are stopped.
 
 ---
 
 ## Localhost-only mode
 
-Default binds RPC to `0.0.0.0` (all interfaces → LAN). To allow **only this machine**:
+By default, RPC binds to `0.0.0.0` (all interfaces). To accept connections **only on the host**:
 
 1. Edit `docker-compose.yml`.
-2. Change geth:
-
+2. Under the **geth** service, change:
    - `--http.addr=0.0.0.0` → `--http.addr=127.0.0.1`
    - `--ws.addr=0.0.0.0` → `--ws.addr=127.0.0.1`
-
-3. Change beacon (optional):
-
+3. Optionally under **beacon**:
    - `--http-host=0.0.0.0` → `--http-host=127.0.0.1`
    - `--rpc-host=0.0.0.0` → `--rpc-host=127.0.0.1`
-
-4. Restart:
+4. Apply the change:
 
 ```bash
 ./restart.sh
 ```
 
-Then use `http://127.0.0.1:8545` in wallets **on the same computer only**.
+Use `http://127.0.0.1:8545` in wallets on **that machine only**.
 
 ---
 
-## Ports overview
+## Network ports
 
 | Port | Protocol | Purpose | Default bind |
 |------|----------|---------|--------------|
-| 8545 | TCP | HTTP RPC (wallets) | `0.0.0.0` (LAN) |
+| 8545 | TCP | HTTP JSON-RPC | `0.0.0.0` (LAN) |
 | 8546 | TCP | WebSocket RPC | `0.0.0.0` (LAN) |
 | 3500 | TCP | Beacon HTTP API | `0.0.0.0` (LAN) |
-| 8551 | TCP | Engine API (geth ↔ beacon, JWT) | localhost (host network) |
-| 30303 | TCP/UDP | Geth P2P | host |
-| 13000 | TCP | Beacon P2P | host |
-| 12000 | UDP | Beacon P2P | host |
+| 8551 | TCP | Engine API (JWT; geth ↔ beacon) | Host-local (via `network_mode: host`) |
+| 30303 | TCP/UDP | Execution P2P | Host |
+| 13000 | TCP | Beacon P2P | Host |
+| 12000 | UDP | Beacon P2P | Host |
 
-For better peer connectivity, allow **inbound** P2P on 30303 / 13000 / 12000 on your router if you know how. **Do not** forward the RPC ports (8545, 8546, 3500).
+For improved peer connectivity, you may allow **inbound** traffic on the P2P ports (30303, 13000, 12000). **Do not** forward RPC ports 8545, 8546, or 3500 to the public internet.
 
 ---
 
-## Configuration notes
+## Configuration summary
 
-- **Network:** PulseChain **mainnet** (`--pulsechain`), Chain ID **369**
-- **Data directory:** `/blockchain` (JWT at `/blockchain/jwt.hex`)
-- **Checkpoint sync:** enabled via `https://checkpoint.pulsechain.com`
-- **Restart policy:** `unless-stopped`
-- **Stop grace period:** `5m` (clean DB shutdown)
-- **Network mode:** `host` (simplest P2P, matches official examples)
-- **`.env` / `.env.example`:** reserved for light future options; v1 keeps compose flags explicit
+| Setting | Value |
+|---------|--------|
+| Network | PulseChain mainnet (`--pulsechain`), chain ID `369` |
+| Data directory | `/blockchain` |
+| JWT secret | `/blockchain/jwt.hex` |
+| Checkpoint sync | `https://checkpoint.pulsechain.com` |
+| Restart policy | `unless-stopped` |
+| Stop grace period | `5m` |
+| Networking | `host` (aligned with official examples; simplifies P2P) |
+
+Optional variables are documented in `.env.example`. Version 1 keeps runtime flags explicit in `docker-compose.yml` for clarity and reliability.
 
 ---
 
 ## Troubleshooting
 
-| Symptom | What to try |
-|---------|-------------|
-| `permission denied` talking to Docker | Log out and back in after install (docker group), or use `sudo docker compose ...` |
-| Beacon says no execution client | Wait for geth to start; confirm `/blockchain/jwt.hex` exists and both containers share it |
-| Wallet can’t connect | Same LAN? Correct IP? Firewall on the node? Try `curl http://127.0.0.1:8545` on the node |
-| Disk filling up | Full nodes grow over time — use a large SSD and monitor free space |
-| Very slow sync | Prefer NVMe, more RAM, and open P2P ports if possible |
+| Issue | Suggested action |
+|-------|------------------|
+| Docker permission denied | Log out and back in after install (docker group membership), or prefix commands with `sudo` |
+| Beacon cannot find execution client | Confirm both containers are running and that `/blockchain/jwt.hex` exists and is shared |
+| Wallet cannot connect | Verify LAN IP, same network, host firewall rules; test `curl` against `127.0.0.1:8545` on the node |
+| Disk space pressure | Full nodes grow over time — monitor free space and use a large SSD |
+| Slow sync | Prefer NVMe storage, adequate RAM, and open P2P ports where practical |
+
+**Health checks** (run on the node host):
 
 ```bash
-# Quick health checks on the node machine
 docker compose ps
+
 curl -s -X POST http://127.0.0.1:8545 \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"eth_syncing","params":[],"id":1}'
 ```
 
-If `eth_syncing` returns `false`, the execution client believes it is synced.
+If `eth_syncing` returns `false`, the execution client reports that it is synced.
 
 ---
 
-## Project layout
+## Repository layout
 
 ```
 pulse-rpc-node/
 ├── README.md
-├── docker-compose.yml   # geth + beacon
-├── .env.example
-├── install.sh           # one-command setup
+├── LICENSE
+├── docker-compose.yml    # Go-Pulse + Prysm-Pulse
+├── .env.example          # Optional future settings
+├── install.sh            # One-command setup
 ├── start.sh
 ├── stop.sh
 ├── restart.sh
@@ -269,16 +270,18 @@ pulse-rpc-node/
 
 ## Credits
 
-- **Go-Pulse** (execution): [gitlab.com/pulsechaincom/go-pulse](https://gitlab.com/pulsechaincom/go-pulse)
-- **Prysm-Pulse** (consensus): [gitlab.com/pulsechaincom/prysm-pulse](https://gitlab.com/pulsechaincom/prysm-pulse)
-- **Official mainnet docs:** [gitlab.com/pulsechaincom/pulsechain-mainnet](https://gitlab.com/pulsechaincom/pulsechain-mainnet)
-- **Checkpoint sync:** [checkpoint.pulsechain.com](https://checkpoint.pulsechain.com)
-- **Explorer:** [scan.pulsechain.com](https://scan.pulsechain.com)
+| Resource | Link |
+|----------|------|
+| Go-Pulse (execution) | [gitlab.com/pulsechaincom/go-pulse](https://gitlab.com/pulsechaincom/go-pulse) |
+| Prysm-Pulse (consensus) | [gitlab.com/pulsechaincom/prysm-pulse](https://gitlab.com/pulsechaincom/prysm-pulse) |
+| Official mainnet documentation | [gitlab.com/pulsechaincom/pulsechain-mainnet](https://gitlab.com/pulsechaincom/pulsechain-mainnet) |
+| Checkpoint sync | [checkpoint.pulsechain.com](https://checkpoint.pulsechain.com) |
+| Block explorer | [scan.pulsechain.com](https://scan.pulsechain.com) |
 
-This project is a convenience wrapper around the **official PulseChain Docker images**. It is not affiliated with PulseChain Core unless stated otherwise.
+This project is a convenience wrapper around the **official PulseChain Docker images**. It is an independent community project and is not affiliated with PulseChain Core unless otherwise stated.
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE) if present; otherwise free to use and adapt for personal and community node setups.
+[MIT](LICENSE)
