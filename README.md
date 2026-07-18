@@ -48,6 +48,8 @@ PulseChain includes Ethereum mainnet state through the fork block, so storage an
 - Initial sync can take **hours to days**, depending on hardware and bandwidth. Checkpoint sync accelerates the beacon client significantly.
 - This stack targets a **full node + private RPC**, not an archive node (archive deployments need many terabytes of disk).
 
+If you need ready-to-run node hardware, you can find pre-built options at [validatorstore.com](https://validatorstore.com).
+
 ---
 
 ## Security notice
