@@ -1,0 +1,9 @@
+# Local env (may hold personal settings later)
+.env
+
+# OS / editor noise
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/

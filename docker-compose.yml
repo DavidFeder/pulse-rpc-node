@@ -1,0 +1,64 @@
+# pulse-rpc-node — PulseChain full node (Go-Pulse + Prysm-Pulse)
+# Mainnet by default. Uses host networking for simple P2P + RPC.
+#
+# ⚠  RPC is bound to 0.0.0.0 (LAN-visible) by default.
+#    Use only on a trusted home network. Never port-forward 8545/8546/3500.
+
+services:
+  # ---------------------------------------------------------------------------
+  # Execution client — Go-Pulse (geth)
+  # ---------------------------------------------------------------------------
+  geth:
+    image: registry.gitlab.com/pulsechaincom/go-pulse:latest
+    container_name: pulse-geth
+    network_mode: host
+    restart: unless-stopped
+    stop_grace_period: 5m
+    volumes:
+      - /blockchain:/blockchain
+    command:
+      - --pulsechain
+      - --datadir=/blockchain
+      - --authrpc.jwtsecret=/blockchain/jwt.hex
+      - --http
+      - --http.addr=0.0.0.0
+      - --http.port=8545
+      - --http.api=eth,net,web3,txpool
+      - --http.corsdomain=*
+      - --http.vhosts=*
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=8546
+      - --ws.api=eth,net,web3,txpool
+      - --ws.origins=*
+      - --maxpeers=150
+      - --discovery.port=30303
+      - --port=30303
+
+  # ---------------------------------------------------------------------------
+  # Consensus client — Prysm-Pulse Beacon Chain
+  # ---------------------------------------------------------------------------
+  beacon:
+    image: registry.gitlab.com/pulsechaincom/prysm-pulse/beacon-chain:latest
+    container_name: pulse-beacon
+    network_mode: host
+    restart: unless-stopped
+    stop_grace_period: 5m
+    depends_on:
+      - geth
+    volumes:
+      - /blockchain:/blockchain
+    command:
+      - --pulsechain
+      - --datadir=/blockchain
+      - --jwt-secret=/blockchain/jwt.hex
+      - --execution-endpoint=http://localhost:8551
+      - --checkpoint-sync-url=https://checkpoint.pulsechain.com
+      - --genesis-beacon-api-url=https://checkpoint.pulsechain.com
+      - --http-host=0.0.0.0
+      - --http-port=3500
+      - --rpc-host=0.0.0.0
+      - --p2p-tcp-port=13000
+      - --p2p-udp-port=12000
+      - --subscribe-all-subnets
+      - --p2p-max-peers=150
