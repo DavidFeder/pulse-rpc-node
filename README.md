@@ -90,7 +90,7 @@ LAN binding is intentional so phones and other machines on the same network can 
 ```bash
 git clone https://github.com/DavidFeder/pulse-rpc-node.git
 cd pulse-rpc-node
-chmod +x install.sh start.sh stop.sh restart.sh logs.sh update.sh
+chmod +x *.sh
 ./install.sh
 ```
 
@@ -98,6 +98,8 @@ chmod +x install.sh start.sh stop.sh restart.sh logs.sh update.sh
 
 ```bash
 ./logs.sh
+# or
+./status.sh
 ```
 
 - The **beacon** client typically advances quickly via [checkpoint sync](https://checkpoint.pulsechain.com).
@@ -152,6 +154,7 @@ Run the following from the project directory:
 
 | Action | Command |
 |--------|---------|
+| Quick status + RPC check | `./status.sh` |
 | Follow logs (both services) | `./logs.sh` |
 | Follow Go-Pulse logs | `./logs.sh geth` |
 | Follow beacon logs | `./logs.sh beacon` |
@@ -207,7 +210,51 @@ Use `http://127.0.0.1:8545` in wallets on **that machine only**.
 | 13000 | TCP | Beacon P2P | Host |
 | 12000 | UDP | Beacon P2P | Host |
 
-For improved peer connectivity, you may allow **inbound** traffic on the P2P ports (30303, 13000, 12000). **Do not** forward RPC ports 8545, 8546, or 3500 to the public internet.
+**Do not** forward RPC ports 8545, 8546, or 3500 to the public internet.
+
+---
+
+## Opening P2P ports (strongly recommended)
+
+Your node can already make **outbound** connections. That is not enough if you want a healthy, well-connected node.
+
+To properly participate in the network you should also accept **inbound** peers. Nodes that only make outbound connections put more load on the network and usually have worse peer counts and slower sync.
+
+**Open these ports for inbound traffic:**
+
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 30303 | TCP + UDP | Go-Pulse (execution) |
+| 13000 | TCP | Beacon P2P |
+| 12000 | UDP | Beacon P2P |
+
+### 1. Firewall on the node (UFW)
+
+The install script already adds the rules if UFW is present. You can also add them manually:
+
+```bash
+sudo ufw allow 30303/tcp
+sudo ufw allow 30303/udp
+sudo ufw allow 13000/tcp
+sudo ufw allow 12000/udp
+```
+
+### 2. Port forwarding on your router (required for inbound peers)
+
+This is the part most people skip — and it’s the most important.
+
+You must log into your router and forward the ports above to the local IP of the machine running the node.
+
+- Log into your router (usually `192.168.0.1` or `192.168.1.1`)
+- Find **Port Forwarding / Virtual Server / NAT**
+- Forward external ports 30303, 13000, and 12000 to the same ports on your node’s local IP
+
+**Every router is different.**  
+Look up your exact make and model, or ask an AI with the model name for step-by-step instructions. We cannot give universal router instructions.
+
+If you do not open these ports on your router, your node will mostly only connect outward and will contribute less to the network.
+
+Opening inbound P2P is one of the highest-impact things you can do for both your own node performance and the health of PulseChain.
 
 ---
 
@@ -272,8 +319,10 @@ Optional variables are documented in `.env.example`. Version 1 keeps runtime fla
 **Health checks** (run on the node host):
 
 ```bash
-docker compose ps
+./status.sh
 
+# or manually:
+docker compose ps
 curl -s -X POST http://127.0.0.1:8545 \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"eth_syncing","params":[],"id":1}'
@@ -293,6 +342,7 @@ pulse-rpc-node/
 ├── .env.example          # Optional future settings
 ├── common.sh             # Shared docker compose helper
 ├── install.sh            # One-command setup
+├── status.sh             # Quick status + RPC check
 ├── start.sh
 ├── stop.sh
 ├── restart.sh
